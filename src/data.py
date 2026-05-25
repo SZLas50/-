@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder
 
 DEFAULT_DATA_PATH = Path("data/loan_defaults.csv")
 
@@ -29,7 +30,7 @@ def load_data(path: str | None = None) -> pd.DataFrame:
     return pd.read_csv(data_path)
 
 
-def preprocess_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+def preprocess_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, OneHotEncoder]:
     """Preprocess the Northern bank loan dataset for model training."""
     df = df.copy()
     if "isDefault" not in df.columns:
@@ -41,6 +42,7 @@ def preprocess_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 
     if "work_year" in df.columns:
         df["work_year_num"] = df["work_year"].apply(parse_work_year)
+        df["work_year_is_missing"] = df["work_year"].isna().astype(int)
 
     categorical_cols = [
         "class",
@@ -51,9 +53,9 @@ def preprocess_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         "initial_list_status",
         "app_type",
     ]
+    categorical_cols = [col for col in categorical_cols if col in df.columns]
     for col in categorical_cols:
-        if col in df.columns:
-            df[col] = df[col].fillna("unknown").astype(str)
+        df[col] = df[col].fillna("unknown").astype(str)
 
     feature_cols = [
         "total_loan",
@@ -61,6 +63,7 @@ def preprocess_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         "interest",
         "monthly_payment",
         "work_year_num",
+        "work_year_is_missing",
         "house_exist",
         "censor_status",
         "debt_loan_ratio",
@@ -79,7 +82,7 @@ def preprocess_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         "issue_month",
     ]
     feature_cols = [col for col in feature_cols if col in df.columns]
-    feature_cols += [col for col in categorical_cols if col in df.columns]
+    feature_cols += categorical_cols
 
     df = df[feature_cols + ["isDefault"]]
 
@@ -88,11 +91,20 @@ def preprocess_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     for col in numeric_cols:
         df[col] = df[col].fillna(df[col].median())
 
-    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], drop_first=True, dtype=int)
+    if categorical_cols:
+        encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+        encoded_cats = encoder.fit_transform(df[categorical_cols])
+        encoded_cat_cols = encoder.get_feature_names_out(categorical_cols)
+        encoded_df = pd.DataFrame(encoded_cats, columns=encoded_cat_cols, index=df.index)
+        df = df.drop(columns=categorical_cols)
+        df = pd.concat([df, encoded_df], axis=1)
+    else:
+        encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+        encoder.fit([[]])
 
     y = df.pop("isDefault")
     X = df
-    return X, y
+    return X, y, encoder
 
 
 def split_data(

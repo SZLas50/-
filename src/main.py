@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+import joblib
 import pandas as pd
 from data import load_data, preprocess_data, split_data
 from model import compare_models, evaluate_model, load_model, save_model, train_model
@@ -62,7 +63,7 @@ def main() -> None:
 
     if args.train:
         data_frame = load_data(str(data_path))
-        X, y = preprocess_data(data_frame)
+        X, y, encoder = preprocess_data(data_frame)
         X_train, X_test, y_train, y_test = split_data(X, y)
 
         rf_model, lr_model = train_model(X_train, y_train)
@@ -72,13 +73,18 @@ def main() -> None:
         )
 
         save_model(best_model, str(model_path))
+        preprocessor_path = model_path.parent / "preprocessor.pkl"
+        joblib.dump(encoder, str(preprocessor_path))
+
         print(f"训练完成，最优模型: {best_model_name} 已保存到 {model_path}")
+        print(f"预处理器已保存到 {preprocessor_path}")
         print_model_results(evaluation_results)
 
     elif args.evaluate:
         model = load_model(str(model_path))
         data_frame = load_data(str(data_path))
-        _, X_test, _, y_test = split_data(*preprocess_data(data_frame))
+        X, y, _ = preprocess_data(data_frame)
+        _, X_test, _, y_test = split_data(X, y)
 
         metrics = evaluate_model(model, X_test, y_test)
         print(f"已加载模型: {model_path}")
